@@ -1,0 +1,9 @@
+target/
+.idea/
+*.iml
+
+# 本地真实配置，不上传
+lab-servre/src/main/resources/application.yml
+lab-servre/target/classes/application.yml
+
+*.log
