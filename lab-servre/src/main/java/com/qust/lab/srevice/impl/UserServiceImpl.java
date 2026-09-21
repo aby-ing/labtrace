@@ -7,29 +7,38 @@ import com.qust.lab.pojo.entity.User;
 import com.qust.lab.pojo.vo.UserLoginVO;
 import com.qust.lab.srevice.UserService;
 import com.qust.lab.utils.JwtUtil;
+import io.jsonwebtoken.JwtException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.qust.lab.pojo.vo.UserSimpleVO;
 
+import java.time.Duration;
 import java.util.List;
 
 @Service
 public class UserServiceImpl implements UserService {
 
+    private static final String TOKEN_BLACKLIST_PREFIX =
+            "jwt:blacklist:";
+
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
 
     private final JwtUtil jwtUtil;
+    private final StringRedisTemplate stringRedisTemplate;
 
     public UserServiceImpl(
             UserMapper userMapper,
             JwtUtil jwtUtil,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            StringRedisTemplate stringRedisTemplate
     ) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @Override
@@ -88,6 +97,28 @@ public class UserServiceImpl implements UserService {
 
         return vo;
     }
+
+    @Override
+    public void logout(String authorization) {
+        String token = extractToken(authorization);
+
+        try {
+            long remainingMillis = jwtUtil.getRemainingMillis(token);
+
+            if (remainingMillis <= 0) {
+                return;
+            }
+
+            stringRedisTemplate.opsForValue().set(
+                    TOKEN_BLACKLIST_PREFIX + token,
+                    "1",
+                    Duration.ofMillis(remainingMillis)
+            );
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new IllegalArgumentException("Token 不合法");
+        }
+    }
+
     @Override
     public List<UserSimpleVO> listEnabledUsers() {
         List<User> users = userMapper.selectList(
@@ -100,6 +131,22 @@ public class UserServiceImpl implements UserService {
                 .map(this::convertToSimpleVO)
                 .toList();
     }
+
+    private String extractToken(String authorization) {
+        if (authorization == null
+                || !authorization.startsWith("Bearer ")) {
+            throw new IllegalArgumentException("请先登录");
+        }
+
+        String token = authorization.substring(7).trim();
+
+        if (token.isEmpty()) {
+            throw new IllegalArgumentException("Token 不能为空");
+        }
+
+        return token;
+    }
+
     private UserSimpleVO convertToSimpleVO(User user) {
         UserSimpleVO vo = new UserSimpleVO();
 

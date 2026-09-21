@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3307/labtrace?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: labtrace
+    password: Labtrace@123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6380
+      database: 0
+      timeout: 3000ms
+  rabbitmq:
+    host: localhost
+    port: 5673
+    username: guest
+    password: guest
+
+app:
+  messaging:
+    enabled: true
+    exchange: labtrace.events
+    sample-created-routing-key: sample.created
+    sample-created-queue: sample.created.queue
+    sample-status-changed-routing-key: sample.status.changed
+    sample-status-changed-queue: sample.status.changed.queue
+    dispatch-delay-ms: 5000
+    max-error-length: 500

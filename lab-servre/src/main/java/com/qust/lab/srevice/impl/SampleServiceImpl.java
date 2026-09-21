@@ -2,6 +2,7 @@ package com.qust.lab.srevice.impl;
 import com.qust.lab.pojo.dto.SampleCreateDTO;
 import com.qust.lab.pojo.dto.SampleStatusChangeDTO;
 import com.qust.lab.pojo.enums.SampleStatus;
+import com.qust.lab.utils.RedisIdempotencyService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -9,6 +10,7 @@ import com.qust.lab.mapper.SampleMapper;
 import com.qust.lab.pojo.entity.Sample;
 import com.qust.lab.pojo.vo.SampleVO;
 import com.qust.lab.srevice.SampleService;
+import com.qust.lab.srevice.OutboxMessageService;
 import org.springframework.stereotype.Service;
 import com.qust.lab.pojo.dto.SampleUpdateDTO;
 import java.util.List;
@@ -22,6 +24,8 @@ import com.qust.lab.pojo.entity.User;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qust.lab.common.result.PageResult;
 import com.qust.lab.pojo.dto.SamplePageQueryDTO;
+import com.qust.lab.pojo.event.SampleCreatedEvent;
+import com.qust.lab.pojo.event.SampleStatusChangedEvent;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 
 @Service
@@ -30,15 +34,21 @@ public class SampleServiceImpl implements SampleService {
     private final SampleMapper sampleMapper;
     private final SampleHandoverMapper sampleHandoverMapper;
     private final UserMapper userMapper;
+    private final RedisIdempotencyService idempotencyService;
+    private final OutboxMessageService outboxMessageService;
 
     public SampleServiceImpl(
             SampleMapper sampleMapper,
             SampleHandoverMapper sampleHandoverMapper,
-            UserMapper userMapper
+            UserMapper userMapper,
+            RedisIdempotencyService idempotencyService,
+            OutboxMessageService outboxMessageService
     ) {
         this.sampleMapper = sampleMapper;
         this.sampleHandoverMapper = sampleHandoverMapper;
         this.userMapper = userMapper;
+        this.idempotencyService = idempotencyService;
+        this.outboxMessageService = outboxMessageService;
     }
 
     @Override
@@ -50,10 +60,22 @@ public class SampleServiceImpl implements SampleService {
                 .toList();
     }
     @Override
+    @Transactional
     public SampleVO create(
             Long creatorId,
+            String idempotencyKey,
             SampleCreateDTO dto
     ) {
+        RedisIdempotencyService.LockToken lockToken =
+                idempotencyService.acquire(
+                        creatorId,
+                        "sample:create",
+                        idempotencyKey
+                );
+
+        boolean completed = false;
+
+        try {
         if (creatorId == null || creatorId <= 0) {
             throw new IllegalArgumentException("当前用户信息无效");
         }
@@ -75,11 +97,33 @@ public class SampleServiceImpl implements SampleService {
         // 新样品的初始状态由后端设置
         sample.setStatus(SampleStatus.CREATED.name());
 
+        // 与数据库默认值保持一致，确保创建接口返回 version = 0
+        sample.setVersion(0);
+
         sample.setCreatedAt(LocalDateTime.now());
 
         sampleMapper.insert(sample);
 
-        return convertToVO(sample);
+            outboxMessageService.saveSampleCreated(
+                    new SampleCreatedEvent(
+                            sample.getId(),
+                            sample.getSampleNo(),
+                            sample.getSampleName(),
+                            sample.getCreatorId(),
+                            sample.getStatus(),
+                            sample.getRiskLevel(),
+                            sample.getCreatedAt()
+                    )
+            );
+
+            SampleVO result = convertToVO(sample);
+            completed = true;
+            return result;
+        } finally {
+            if (!completed) {
+                idempotencyService.release(lockToken);
+            }
+        }
     }
     @Override
     public SampleVO getById(Long id) {
@@ -196,8 +240,19 @@ public class SampleServiceImpl implements SampleService {
             );
         }
 
-// 9. 状态更新成功后，再保存交接历史
+        // 9. 状态更新成功后，再保存交接历史
         sampleHandoverMapper.insert(handover);
+
+        outboxMessageService.saveSampleStatusChanged(
+                new SampleStatusChangedEvent(
+                        sample.getId(),
+                        operatorId,
+                        dto.getToUserId(),
+                        currentStatus.name(),
+                        targetStatus.name(),
+                        dto.getRemark()
+                )
+        );
 
 // 10. 更新内存中的对象，用于返回结果
         sample.setStatus(targetStatus.name());
@@ -320,19 +375,37 @@ public class SampleServiceImpl implements SampleService {
     public SampleVO handover(
             Long operatorId,
             Long id,
+            String idempotencyKey,
             SampleHandoverCreateDTO dto
     ){
         if (dto == null) {
             throw new IllegalArgumentException("交接数据不能为空");
         }
 
+        RedisIdempotencyService.LockToken lockToken =
+                idempotencyService.acquire(
+                        operatorId,
+                        "sample:handover:" + id,
+                        idempotencyKey
+                );
+
+        boolean completed = false;
+
+        try {
         SampleStatusChangeDTO statusDTO = new SampleStatusChangeDTO();
 
         statusDTO.setStatus(SampleStatus.HANDED_OVER);
         statusDTO.setToUserId(dto.getToUserId());
         statusDTO.setRemark(dto.getRemark());
 
-        return changeStatus(operatorId, id, statusDTO);
+            SampleVO result = changeStatus(operatorId, id, statusDTO);
+            completed = true;
+            return result;
+        } finally {
+            if (!completed) {
+                idempotencyService.release(lockToken);
+            }
+        }
     }
     @Override
     public List<SampleHandoverVO> listHandoverHistory(Long sampleId) {

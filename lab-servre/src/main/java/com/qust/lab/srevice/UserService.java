@@ -10,5 +10,7 @@ public interface UserService {
 
     UserLoginVO login(UserLoginDTO dto);
 
+    void logout(String authorization);
+
     List<UserSimpleVO> listEnabledUsers();
 }

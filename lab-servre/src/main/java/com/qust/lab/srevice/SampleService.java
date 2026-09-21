@@ -13,7 +13,11 @@ import com.qust.lab.pojo.dto.SamplePageQueryDTO;
 public interface SampleService {
 
     List<SampleVO> listAll();
-    SampleVO create(Long creatorId, SampleCreateDTO dto);
+    SampleVO create(
+            Long creatorId,
+            String idempotencyKey,
+            SampleCreateDTO dto
+    );
     SampleVO getById(Long id);
     SampleVO changeStatus(
             Long operatorId,
@@ -30,6 +34,7 @@ public interface SampleService {
     SampleVO handover(
             Long operatorId,
             Long id,
+            String idempotencyKey,
             SampleHandoverCreateDTO dto
     );
     List<SampleHandoverVO> listHandoverHistory(Long sampleId);

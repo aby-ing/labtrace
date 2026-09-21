@@ -9,6 +9,8 @@ import com.qust.lab.pojo.dto.SampleStatusChangeDTO;
 import com.qust.lab.pojo.dto.SampleUpdateDTO;
 import com.qust.lab.pojo.vo.SampleHandoverVO;
 import com.qust.lab.pojo.vo.SampleVO;
+import com.qust.lab.pojo.vo.SampleAuditLogVO;
+import com.qust.lab.srevice.SampleAuditLogService;
 import com.qust.lab.srevice.SampleService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,9 +31,14 @@ import java.util.List;
 public class SampleController {
 
     private final SampleService sampleService;
+    private final SampleAuditLogService sampleAuditLogService;
 
-    public SampleController(SampleService sampleService) {
+    public SampleController(
+            SampleService sampleService,
+            SampleAuditLogService sampleAuditLogService
+    ) {
         this.sampleService = sampleService;
+        this.sampleAuditLogService = sampleAuditLogService;
     }
 
     @GetMapping
@@ -41,10 +49,11 @@ public class SampleController {
     @PostMapping
     public Result<SampleVO> create(
             @RequestAttribute("userId") Long userId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SampleCreateDTO dto
     ) {
         return Result.success(
-                sampleService.create(userId, dto)
+                sampleService.create(userId, idempotencyKey, dto)
         );
     }
 
@@ -110,10 +119,16 @@ public class SampleController {
     public Result<SampleVO> handover(
             @RequestAttribute("userId") Long userId,
             @PathVariable Long id,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SampleHandoverCreateDTO dto
     ) {
         return Result.success(
-                sampleService.handover(userId, id, dto)
+                sampleService.handover(
+                        userId,
+                        id,
+                        idempotencyKey,
+                        dto
+                )
         );
     }
 
@@ -123,6 +138,15 @@ public class SampleController {
     ) {
         return Result.success(
                 sampleService.listHandoverHistory(id)
+        );
+    }
+
+    @GetMapping("/{id}/audit-logs")
+    public Result<List<SampleAuditLogVO>> listAuditLogs(
+            @PathVariable Long id
+    ) {
+        return Result.success(
+                sampleAuditLogService.listBySampleId(id)
         );
     }
 }

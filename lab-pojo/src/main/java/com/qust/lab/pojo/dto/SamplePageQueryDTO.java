@@ -2,6 +2,7 @@ package com.qust.lab.pojo.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class SamplePageQueryDTO {
@@ -20,9 +21,17 @@ public class SamplePageQueryDTO {
     private String sampleName;
 
     // 样品状态
+    @Pattern(
+            regexp = "CREATED|HANDED_OVER|STORED|TESTING|COMPLETED|ABNORMAL",
+            message = "样品状态不合法"
+    )
     private String status;
 
     // 风险等级
+    @Pattern(
+            regexp = "LOW|MEDIUM|HIGH",
+            message = "风险等级只能是 LOW、MEDIUM 或 HIGH"
+    )
     private String riskLevel;
 
     public SamplePageQueryDTO() {

@@ -55,8 +55,18 @@ public class JwtUtil {
         Claims claims = parseToken(token);
         return Long.valueOf(claims.getSubject());
     }
+
     public String getRole(String token) {
         Claims claims = parseToken(token);
         return claims.get("role", String.class);
+    }
+
+    public long getRemainingMillis(String token) {
+        Claims claims = parseToken(token);
+        long remainingMillis =
+                claims.getExpiration().getTime()
+                        - System.currentTimeMillis();
+
+        return Math.max(remainingMillis, 0);
     }
 }
