@@ -17,13 +17,17 @@ source /home/yyc/IdeaProjects/labtrace/db/schema.sql;
 source /home/yyc/IdeaProjects/labtrace/db/data.sql;
 ```
 
-如果数据库表已经存在，只需要执行外键迁移脚本：
+如果数据库表已经存在，按顺序执行尚未运行过的迁移脚本：
 
 ```sql
 source /home/yyc/IdeaProjects/labtrace/db/migration/V2__add_foreign_keys.sql;
+source /home/yyc/IdeaProjects/labtrace/db/migration/V3__create_sample_audit_log.sql;
+source /home/yyc/IdeaProjects/labtrace/db/migration/V4__create_outbox_message.sql;
+source /home/yyc/IdeaProjects/labtrace/db/migration/V5__recover_stale_outbox_messages.sql;
 ```
 
-这个迁移脚本只需要执行一次。它会保证样品和交接记录引用的用户、样品必须真实存在。
+其中 V2 只需执行一次；已有 Outbox 表的环境至少需要执行 V5。
+这些脚本目前由管理员手动执行，不会在应用启动时自动迁移。
 
 脚本会创建：
 
@@ -33,6 +37,10 @@ source /home/yyc/IdeaProjects/labtrace/db/migration/V2__add_foreign_keys.sql;
 - `sample_handover` 样品交接记录表
 - MySQL 连接账号：`labtrace / Labtrace@123456`
 - 系统管理员账号：`admin / 123456`
+
+如果是从 GitHub 重新拉取项目，可以参考
+`lab-servre/src/main/resources/application.yml.example`
+创建本机的 `application.yml`，再按实际环境修改数据库、Redis 和 JWT 配置。
 
 ## 2. 启动后端
 
@@ -52,6 +60,18 @@ mvn -pl lab-servre spring-boot:run
 http://localhost:8080/hello
 ```
 
+检查本机环境是否连通：
+
+```text
+GET http://localhost:8080/health
+GET http://localhost:8080/health/database
+GET http://localhost:8080/health/redis
+GET http://localhost:8080/health/rabbitmq
+```
+
+其中 `/health` 会一次性返回 MySQL、Redis 和 RabbitMQ 的状态。
+如果本地默认配置没有开启 RabbitMQ，`rabbitmq.enabled` 显示 `false` 是正常的。
+
 ## 使用 Docker 启动 MySQL 和 Redis
 
 如果不想使用本机安装的 MySQL 和 Redis，可以用 Docker 启动环境：
@@ -66,8 +86,13 @@ Docker 环境端口：
 - Redis：`localhost:6380`
 - RabbitMQ：`localhost:5673`
 - RabbitMQ 管理台：`http://localhost:15673`
+- RabbitMQ 账号：`labtrace / LabtraceMq@123456`
 - MySQL root 账号：`root / Root@123456`
 - 项目数据库账号：`labtrace / Labtrace@123456`
+
+以上账号密码仅用于本地开发。部署到共享、测试或生产环境时，请通过
+`MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`RABBITMQ_USERNAME`、
+`RABBITMQ_PASSWORD` 和 `JWT_SECRET` 环境变量覆盖默认值。
 
 使用 Docker 环境启动后端：
 
@@ -85,6 +110,10 @@ Docker 配置会开启 RabbitMQ 消息事件。创建样品成功后，后端会
 ```text
 GET /api/samples/{id}/audit-logs
 ```
+
+Outbox 消息如果处于 `SENDING` 状态超过 5 分钟，会被后台任务重新发送。
+发送后会等待 RabbitMQ 确认；未确认或没有路由到队列的消息保留在 Outbox 中重试。
+消费者通过事件编号避免重复写入审计日志。
 
 查看容器状态：
 
@@ -140,3 +169,36 @@ Authorization: Bearer 你的token
 ```
 
 退出后，这个 token 会被写入 Redis 黑名单。再次使用同一个 token 请求接口时，会返回未登录或已退出。
+
+## 5. Agent 接口
+
+Agent 接口需要先登录，并携带登录返回的 Token。
+
+```text
+POST http://localhost:8080/api/agent/chat
+Authorization: Bearer 你的token
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "sampleId": 1,
+  "question": "这个样品当前是什么状态，经过了几次交接？"
+}
+```
+
+Agent 会读取样品信息、交接历史和审计日志。
+默认情况下 `AGENT_ENABLED=false`，系统会返回本地整理的样品上下文，不会调用远程模型。
+
+如果要开启远程模型，启动后端前设置：
+
+```bash
+export AGENT_ENABLED=true
+export AGENT_API_KEY="你的模型 API Key"
+export AGENT_BASE_URL="https://api.openai.com/v1"
+export AGENT_MODEL="gpt-4.1-mini"
+```
+
+然后重新启动后端。

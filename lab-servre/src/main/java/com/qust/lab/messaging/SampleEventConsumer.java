@@ -2,6 +2,8 @@ package com.qust.lab.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qust.lab.mapper.SampleAuditLogMapper;
+import com.qust.lab.mapper.SampleMapper;
+import com.qust.lab.pojo.entity.Sample;
 import com.qust.lab.pojo.entity.SampleAuditLog;
 import com.qust.lab.pojo.event.SampleCreatedEvent;
 import com.qust.lab.pojo.event.SampleStatusChangedEvent;
@@ -26,13 +28,16 @@ public class SampleEventConsumer {
 
     private final ObjectMapper objectMapper;
     private final SampleAuditLogMapper auditLogMapper;
+    private final SampleMapper sampleMapper;
 
     public SampleEventConsumer(
             ObjectMapper objectMapper,
-            SampleAuditLogMapper auditLogMapper
+            SampleAuditLogMapper auditLogMapper,
+            SampleMapper sampleMapper
     ) {
         this.objectMapper = objectMapper;
         this.auditLogMapper = auditLogMapper;
+        this.sampleMapper = sampleMapper;
     }
 
     @RabbitListener(
@@ -45,6 +50,14 @@ public class SampleEventConsumer {
                             message,
                             SampleCreatedEvent.class
                     );
+
+            if (sampleMapper.selectById(event.getSampleId()) == null) {
+                log.info(
+                        "样品已经删除，忽略创建审计事件: {}",
+                        event.getEventId()
+                );
+                return;
+            }
 
             SampleAuditLog auditLog = new SampleAuditLog();
             auditLog.setEventId(event.getEventId());
@@ -74,6 +87,14 @@ public class SampleEventConsumer {
                             message,
                             SampleStatusChangedEvent.class
                     );
+
+            if (sampleMapper.selectById(event.getSampleId()) == null) {
+                log.info(
+                        "样品已经删除，忽略状态审计事件: {}",
+                        event.getEventId()
+                );
+                return;
+            }
 
             SampleAuditLog auditLog = new SampleAuditLog();
             auditLog.setEventId(event.getEventId());

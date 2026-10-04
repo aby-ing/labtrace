@@ -31,6 +31,9 @@ public class OutboxMessage {
     @TableField("retry_count")
     private Integer retryCount;
 
+    @TableField("sending_started_at")
+    private LocalDateTime sendingStartedAt;
+
     @TableField("next_retry_at")
     private LocalDateTime nextRetryAt;
 
@@ -105,6 +108,14 @@ public class OutboxMessage {
 
     public void setRetryCount(Integer retryCount) {
         this.retryCount = retryCount;
+    }
+
+    public LocalDateTime getSendingStartedAt() {
+        return sendingStartedAt;
+    }
+
+    public void setSendingStartedAt(LocalDateTime sendingStartedAt) {
+        this.sendingStartedAt = sendingStartedAt;
     }
 
     public LocalDateTime getNextRetryAt() {

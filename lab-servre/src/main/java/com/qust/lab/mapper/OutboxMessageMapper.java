@@ -16,10 +16,20 @@ public interface OutboxMessageMapper
     @Select("""
             SELECT *
             FROM outbox_message
-            WHERE status IN ('PENDING', 'FAILED')
-              AND (
-                    next_retry_at IS NULL
-                    OR next_retry_at <= NOW()
+            WHERE (
+                    status IN ('PENDING', 'FAILED')
+                    AND (
+                          next_retry_at IS NULL
+                          OR next_retry_at <= NOW()
+                        )
+                  )
+               OR (
+                    status = 'SENDING'
+                    AND (
+                          sending_started_at IS NULL
+                          OR sending_started_at <=
+                             DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                        )
                   )
             ORDER BY id ASC
             LIMIT 50
@@ -29,12 +39,25 @@ public interface OutboxMessageMapper
     @Update("""
             UPDATE outbox_message
             SET status = 'SENDING',
-                retry_count = retry_count + 1
+                retry_count = retry_count + 1,
+                sending_started_at = NOW()
             WHERE id = #{id}
-              AND status IN ('PENDING', 'FAILED')
               AND (
-                    next_retry_at IS NULL
-                    OR next_retry_at <= NOW()
+                    (
+                      status IN ('PENDING', 'FAILED')
+                      AND (
+                            next_retry_at IS NULL
+                            OR next_retry_at <= NOW()
+                          )
+                    )
+                    OR (
+                      status = 'SENDING'
+                      AND (
+                            sending_started_at IS NULL
+                            OR sending_started_at <=
+                               DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                          )
+                    )
                   )
             """)
     int markSending(@Param("id") Long id);
@@ -42,6 +65,7 @@ public interface OutboxMessageMapper
     @Update("""
             UPDATE outbox_message
             SET status = 'PUBLISHED',
+                sending_started_at = NULL,
                 published_at = NOW(),
                 last_error = NULL
             WHERE id = #{id}
@@ -52,6 +76,7 @@ public interface OutboxMessageMapper
     @Update("""
             UPDATE outbox_message
             SET status = 'FAILED',
+                sending_started_at = NULL,
                 next_retry_at = DATE_ADD(NOW(), INTERVAL 30 SECOND),
                 last_error = #{error}
             WHERE id = #{id}

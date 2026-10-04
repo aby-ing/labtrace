@@ -1,4 +1,7 @@
 package com.qust.lab.srevice.impl;
+import com.qust.lab.exception.ConflictException;
+import com.qust.lab.exception.ForbiddenException;
+import com.qust.lab.exception.NotFoundException;
 import com.qust.lab.pojo.dto.SampleCreateDTO;
 import com.qust.lab.pojo.dto.SampleStatusChangeDTO;
 import com.qust.lab.pojo.enums.SampleStatus;
@@ -18,6 +21,8 @@ import com.qust.lab.mapper.SampleHandoverMapper;
 import com.qust.lab.pojo.dto.SampleHandoverCreateDTO;
 import com.qust.lab.pojo.entity.SampleHandover;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.qust.lab.pojo.vo.SampleHandoverVO;
 import com.qust.lab.mapper.UserMapper;
 import com.qust.lab.pojo.entity.User;
@@ -27,6 +32,12 @@ import com.qust.lab.pojo.dto.SamplePageQueryDTO;
 import com.qust.lab.pojo.event.SampleCreatedEvent;
 import com.qust.lab.pojo.event.SampleStatusChangedEvent;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class SampleServiceImpl implements SampleService {
@@ -54,9 +65,10 @@ public class SampleServiceImpl implements SampleService {
     @Override
     public List<SampleVO> listAll() {
         List<Sample> samples = sampleMapper.selectList(null);
+        Map<Long, String> userNames = getSampleUserNames(samples);
 
         return samples.stream()
-                .map(this::convertToVO)
+                .map(sample -> convertToVO(sample, userNames))
                 .toList();
     }
     @Override
@@ -72,10 +84,8 @@ public class SampleServiceImpl implements SampleService {
                         "sample:create",
                         idempotencyKey
                 );
+        releaseOnRollback(lockToken);
 
-        boolean completed = false;
-
-        try {
         if (creatorId == null || creatorId <= 0) {
             throw new IllegalArgumentException("当前用户信息无效");
         }
@@ -104,26 +114,19 @@ public class SampleServiceImpl implements SampleService {
 
         sampleMapper.insert(sample);
 
-            outboxMessageService.saveSampleCreated(
-                    new SampleCreatedEvent(
-                            sample.getId(),
-                            sample.getSampleNo(),
-                            sample.getSampleName(),
-                            sample.getCreatorId(),
-                            sample.getStatus(),
-                            sample.getRiskLevel(),
-                            sample.getCreatedAt()
-                    )
-            );
+        outboxMessageService.saveSampleCreated(
+                new SampleCreatedEvent(
+                        sample.getId(),
+                        sample.getSampleNo(),
+                        sample.getSampleName(),
+                        sample.getCreatorId(),
+                        sample.getStatus(),
+                        sample.getRiskLevel(),
+                        sample.getCreatedAt()
+                )
+        );
 
-            SampleVO result = convertToVO(sample);
-            completed = true;
-            return result;
-        } finally {
-            if (!completed) {
-                idempotencyService.release(lockToken);
-            }
-        }
+        return convertToVO(sample);
     }
     @Override
     public SampleVO getById(Long id) {
@@ -146,7 +149,7 @@ public class SampleServiceImpl implements SampleService {
         Sample sample = sampleMapper.selectById(id);
 
         if (sample == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
 
         // 2. 校验请求参数
@@ -199,7 +202,7 @@ public class SampleServiceImpl implements SampleService {
         }
 
         if (!operatorId.equals(expectedOperatorId)) {
-            throw new IllegalArgumentException(
+            throw new ForbiddenException(
                     "当前用户不是该样品的责任人"
             );
         }
@@ -233,9 +236,9 @@ public class SampleServiceImpl implements SampleService {
                 currentVersion
         );
 
-// 更新失败，说明样品可能被别人先操作了
+        // 更新失败，说明样品可能被别人先操作了
         if (updatedRows == 0) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "样品状态已被其他人修改，请刷新后重试"
             );
         }
@@ -273,7 +276,7 @@ public class SampleServiceImpl implements SampleService {
         Sample sample = sampleMapper.selectById(id);
 
         if (sample == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
         boolean isAdmin = "ADMIN".equals(role);
 
@@ -284,7 +287,7 @@ public class SampleServiceImpl implements SampleService {
                 && operatorId.equals(sample.getCustodianId());
 
         if (!isAdmin && !isCreator && !isCustodian) {
-            throw new IllegalArgumentException(
+            throw new ForbiddenException(
                     "只有管理员、创建人或当前保管人可以修改样品"
             );
         }
@@ -309,7 +312,7 @@ public class SampleServiceImpl implements SampleService {
 
         // 4. 前端版本和数据库版本不一致
         if (!dbVersion.equals(dto.getVersion())) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "样品已经被其他人修改，请刷新后重试"
             );
         }
@@ -333,11 +336,13 @@ public class SampleServiceImpl implements SampleService {
                 sampleName,
                 sourceLab,
                 riskLevel,
-                dto.getVersion()
+                dto.getVersion(),
+                operatorId,
+                isAdmin
         );
 
         if (updatedRows == 0) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "样品已经被其他人修改，请刷新后重试"
             );
         }
@@ -357,18 +362,33 @@ public class SampleServiceImpl implements SampleService {
 
         // 2. 样品不存在
         if (sample == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
 
         // 3. 只有刚创建、尚未流转的样品允许删除
         if (!SampleStatus.CREATED.name().equals(sample.getStatus())) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "当前样品已经发生流转，不能直接删除"
             );
         }
 
-        // 4. 根据主键删除数据库记录
-        sampleMapper.deleteById(id);
+        Integer currentVersion = sample.getVersion();
+
+        if (currentVersion == null) {
+            currentVersion = 0;
+        }
+
+        // 状态和版本一起参与删除，避免查询后被并发修改
+        int deletedRows = sampleMapper.deleteIfCreatedAndVersion(
+                id,
+                currentVersion
+        );
+
+        if (deletedRows == 0) {
+            throw new ConflictException(
+                    "样品已经被其他人修改，请刷新后重试"
+            );
+        }
     }
     @Override
     @Transactional
@@ -388,24 +408,30 @@ public class SampleServiceImpl implements SampleService {
                         "sample:handover:" + id,
                         idempotencyKey
                 );
+        releaseOnRollback(lockToken);
 
-        boolean completed = false;
-
-        try {
         SampleStatusChangeDTO statusDTO = new SampleStatusChangeDTO();
 
         statusDTO.setStatus(SampleStatus.HANDED_OVER);
         statusDTO.setToUserId(dto.getToUserId());
         statusDTO.setRemark(dto.getRemark());
 
-            SampleVO result = changeStatus(operatorId, id, statusDTO);
-            completed = true;
-            return result;
-        } finally {
-            if (!completed) {
-                idempotencyService.release(lockToken);
-            }
-        }
+        return changeStatus(operatorId, id, statusDTO);
+    }
+
+    private void releaseOnRollback(
+            RedisIdempotencyService.LockToken lockToken
+    ) {
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == STATUS_ROLLED_BACK) {
+                            idempotencyService.release(lockToken);
+                        }
+                    }
+                }
+        );
     }
     @Override
     public List<SampleHandoverVO> listHandoverHistory(Long sampleId) {
@@ -418,16 +444,21 @@ public class SampleServiceImpl implements SampleService {
         Sample sample = sampleMapper.selectById(sampleId);
 
         if (sample == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
 
         // 3. 查询该样品的所有流转记录
         List<SampleHandover> handovers =
                 sampleHandoverMapper.selectBySampleId(sampleId);
+        Map<Long, String> userNames =
+                getHandoverUserNames(handovers);
 
         // 4. 转换成前端需要的 VO
         return handovers.stream()
-                .map(this::convertToHandoverVO)
+                .map(handover -> convertToHandoverVO(
+                        handover,
+                        userNames
+                ))
                 .toList();
     }
     @Override
@@ -484,9 +515,12 @@ public class SampleServiceImpl implements SampleService {
         Page<Sample> result =
                 sampleMapper.selectPage(mpPage, wrapper);
 
-        List<SampleVO> records = result.getRecords()
+        List<Sample> samples = result.getRecords();
+        Map<Long, String> userNames = getSampleUserNames(samples);
+
+        List<SampleVO> records = samples
                 .stream()
-                .map(this::convertToVO)
+                .map(sample -> convertToVO(sample, userNames))
                 .toList();
 
         return new PageResult<>(
@@ -498,6 +532,13 @@ public class SampleServiceImpl implements SampleService {
     }
 
     private SampleVO convertToVO(Sample sample) {
+        return convertToVO(sample, null);
+    }
+
+    private SampleVO convertToVO(
+            Sample sample,
+            Map<Long, String> userNames
+    ) {
         SampleVO vo = new SampleVO();
         vo.setId(sample.getId());
         vo.setVersion(sample.getVersion());
@@ -507,8 +548,14 @@ public class SampleServiceImpl implements SampleService {
         vo.setSampleName(sample.getSampleName());
         vo.setSourceLab(sample.getSourceLab());
 
-        vo.setCreatorName(getUserRealName(sample.getCreatorId()));
-        vo.setCustodianName(getUserRealName(sample.getCustodianId()));
+        vo.setCreatorName(getUserRealName(
+                sample.getCreatorId(),
+                userNames
+        ));
+        vo.setCustodianName(getUserRealName(
+                sample.getCustodianId(),
+                userNames
+        ));
 
         vo.setStatus(sample.getStatus());
         vo.setStatusText(getStatusText(sample.getStatus()));
@@ -517,9 +564,77 @@ public class SampleServiceImpl implements SampleService {
 
         return vo;
     }
+
+    private Map<Long, String> getSampleUserNames(
+            Collection<Sample> samples
+    ) {
+        Set<Long> userIds = new HashSet<>();
+
+        for (Sample sample : samples) {
+            if (sample.getCreatorId() != null) {
+                userIds.add(sample.getCreatorId());
+            }
+
+            if (sample.getCustodianId() != null) {
+                userIds.add(sample.getCustodianId());
+            }
+        }
+
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, String> userNames = new HashMap<>();
+
+        for (User user : userMapper.selectBatchIds(userIds)) {
+            userNames.put(user.getId(), user.getRealName());
+        }
+
+        return userNames;
+    }
+
+    private Map<Long, String> getHandoverUserNames(
+            Collection<SampleHandover> handovers
+    ) {
+        Set<Long> userIds = new HashSet<>();
+
+        for (SampleHandover handover : handovers) {
+            if (handover.getFromUserId() != null) {
+                userIds.add(handover.getFromUserId());
+            }
+
+            if (handover.getToUserId() != null) {
+                userIds.add(handover.getToUserId());
+            }
+        }
+
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, String> userNames = new HashMap<>();
+
+        for (User user : userMapper.selectBatchIds(userIds)) {
+            userNames.put(user.getId(), user.getRealName());
+        }
+
+        return userNames;
+    }
+
     private String getUserRealName(Long userId) {
+        return getUserRealName(userId, null);
+    }
+
+    private String getUserRealName(
+            Long userId,
+            Map<Long, String> userNames
+    ) {
         if (userId == null) {
             return null;
+        }
+
+        if (userNames != null) {
+            return userNames.getOrDefault(userId, "未知用户");
         }
 
         User user = userMapper.selectById(userId);
@@ -578,6 +693,13 @@ public class SampleServiceImpl implements SampleService {
     private SampleHandoverVO convertToHandoverVO(
             SampleHandover handover
     ) {
+        return convertToHandoverVO(handover, null);
+    }
+
+    private SampleHandoverVO convertToHandoverVO(
+            SampleHandover handover,
+            Map<Long, String> userNames
+    ) {
         SampleHandoverVO vo = new SampleHandoverVO();
 
         vo.setId(handover.getId());
@@ -585,12 +707,12 @@ public class SampleServiceImpl implements SampleService {
 
         vo.setFromUserId(handover.getFromUserId());
         vo.setFromUserName(
-                getUserRealName(handover.getFromUserId())
+                getUserRealName(handover.getFromUserId(), userNames)
         );
 
         vo.setToUserId(handover.getToUserId());
         vo.setToUserName(
-                getUserRealName(handover.getToUserId())
+                getUserRealName(handover.getToUserId(), userNames)
         );
 
         vo.setFromStatus(handover.getFromStatus());

@@ -2,6 +2,8 @@ package com.qust.lab.controller;
 
 import com.qust.lab.common.result.PageResult;
 import com.qust.lab.common.result.Result;
+import com.qust.lab.exception.ForbiddenException;
+import com.qust.lab.exception.NotFoundException;
 import com.qust.lab.pojo.dto.SampleCreateDTO;
 import com.qust.lab.pojo.dto.SampleHandoverCreateDTO;
 import com.qust.lab.pojo.dto.SamplePageQueryDTO;
@@ -71,7 +73,7 @@ public class SampleController {
         SampleVO sampleVO = sampleService.getById(id);
 
         if (sampleVO == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
 
         return Result.success(sampleVO);
@@ -103,10 +105,10 @@ public class SampleController {
     @DeleteMapping("/{id}")
     public Result<Void> delete(
             @RequestAttribute("role") String role,
-            @PathVariable Long id
+        @PathVariable Long id
     ) {
         if (!"ADMIN".equals(role)) {
-            throw new IllegalArgumentException(
+            throw new ForbiddenException(
                     "只有管理员可以删除样品"
             );
         }

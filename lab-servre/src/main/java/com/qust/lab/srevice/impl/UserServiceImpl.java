@@ -1,6 +1,8 @@
 package com.qust.lab.srevice.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.qust.lab.exception.ForbiddenException;
+import com.qust.lab.exception.UnauthorizedException;
 import com.qust.lab.mapper.UserMapper;
 import com.qust.lab.pojo.dto.UserLoginDTO;
 import com.qust.lab.pojo.entity.User;
@@ -71,12 +73,12 @@ public class UserServiceImpl implements UserService {
                 dto.getPassword(),
                 user.getPassword()
         )) {
-            throw new IllegalArgumentException("用户名或密码错误");
+            throw new UnauthorizedException("用户名或密码错误");
         }
 
         // 5. 检查用户状态
         if (!Integer.valueOf(1).equals(user.getStatus())) {
-            throw new IllegalArgumentException("用户已被禁用");
+            throw new ForbiddenException("用户已被禁用");
         }
 
         // 6. 生成 JWT

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS outbox_message (
   payload JSON NOT NULL COMMENT '事件 JSON 内容',
   status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/SENDING/PUBLISHED/FAILED',
   retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数',
+  sending_started_at DATETIME NULL COMMENT '开始发送时间',
   next_retry_at DATETIME NULL COMMENT '下次重试时间',
   last_error VARCHAR(500) NULL COMMENT '最近一次错误',
   published_at DATETIME NULL COMMENT '发送成功时间',

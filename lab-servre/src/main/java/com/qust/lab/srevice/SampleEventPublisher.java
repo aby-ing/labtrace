@@ -6,8 +6,13 @@ import com.qust.lab.pojo.entity.OutboxMessage;
 import com.qust.lab.pojo.event.SampleCreatedEvent;
 import com.qust.lab.pojo.event.SampleStatusChangedEvent;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class SampleEventPublisher {
@@ -56,11 +61,29 @@ public class SampleEventPublisher {
     }
 
     public void publish(OutboxMessage message) {
+        CorrelationData correlationData =
+                new CorrelationData(message.getEventId());
         rabbitTemplate.convertAndSend(
                 message.getExchangeName(),
                 message.getRoutingKey(),
-                message.getPayload()
+                message.getPayload(),
+                correlationData
         );
+
+        try {
+            CorrelationData.Confirm confirm = correlationData
+                    .getFuture().get(5, TimeUnit.SECONDS);
+            if (!confirm.ack() || correlationData.getReturned() != null) {
+                throw new IllegalStateException(
+                        "消息未被 RabbitMQ 接收或路由: " + message.getEventId()
+                );
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待消息确认被中断", error);
+        } catch (ExecutionException | TimeoutException error) {
+            throw new IllegalStateException("等待消息确认失败", error);
+        }
     }
 
     public void publishSampleStatusChanged(

@@ -1,5 +1,6 @@
 package com.qust.lab.srevice.impl;
 
+import com.qust.lab.exception.NotFoundException;
 import com.qust.lab.mapper.SampleAuditLogMapper;
 import com.qust.lab.mapper.SampleMapper;
 import com.qust.lab.mapper.UserMapper;
@@ -10,7 +11,12 @@ import com.qust.lab.pojo.vo.SampleAuditLogVO;
 import com.qust.lab.srevice.SampleAuditLogService;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class SampleAuditLogServiceImpl
@@ -39,25 +45,36 @@ public class SampleAuditLogServiceImpl
         Sample sample = sampleMapper.selectById(sampleId);
 
         if (sample == null) {
-            throw new IllegalArgumentException("样品不存在");
+            throw new NotFoundException("样品不存在");
         }
 
-        return auditLogMapper.selectBySampleId(sampleId)
+        List<SampleAuditLog> logs =
+                auditLogMapper.selectBySampleId(sampleId);
+        Map<Long, String> userNames = getUserNames(logs);
+
+        return logs
                 .stream()
-                .map(this::toVO)
+                .map(log -> toVO(log, userNames))
                 .toList();
     }
 
-    private SampleAuditLogVO toVO(SampleAuditLog log) {
+    private SampleAuditLogVO toVO(
+            SampleAuditLog log,
+            Map<Long, String> userNames
+    ) {
         SampleAuditLogVO vo = new SampleAuditLogVO();
         vo.setId(log.getId());
         vo.setEventId(log.getEventId());
         vo.setSampleId(log.getSampleId());
         vo.setEventType(log.getEventType());
         vo.setOperatorId(log.getOperatorId());
-        vo.setOperatorName(getUserName(log.getOperatorId()));
+        vo.setOperatorName(
+                getUserName(log.getOperatorId(), userNames)
+        );
         vo.setToUserId(log.getToUserId());
-        vo.setToUserName(getUserName(log.getToUserId()));
+        vo.setToUserName(
+                getUserName(log.getToUserId(), userNames)
+        );
         vo.setFromStatus(log.getFromStatus());
         vo.setFromStatusText(getStatusText(log.getFromStatus()));
         vo.setToStatus(log.getToStatus());
@@ -67,13 +84,43 @@ public class SampleAuditLogServiceImpl
         return vo;
     }
 
-    private String getUserName(Long userId) {
+    private Map<Long, String> getUserNames(
+            Collection<SampleAuditLog> logs
+    ) {
+        Set<Long> userIds = new HashSet<>();
+
+        for (SampleAuditLog log : logs) {
+            if (log.getOperatorId() != null) {
+                userIds.add(log.getOperatorId());
+            }
+
+            if (log.getToUserId() != null) {
+                userIds.add(log.getToUserId());
+            }
+        }
+
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, String> userNames = new HashMap<>();
+
+        for (User user : userMapper.selectBatchIds(userIds)) {
+            userNames.put(user.getId(), user.getRealName());
+        }
+
+        return userNames;
+    }
+
+    private String getUserName(
+            Long userId,
+            Map<Long, String> userNames
+    ) {
         if (userId == null) {
             return null;
         }
 
-        User user = userMapper.selectById(userId);
-        return user == null ? "未知用户" : user.getRealName();
+        return userNames.getOrDefault(userId, "未知用户");
     }
 
     private String getStatusText(String status) {

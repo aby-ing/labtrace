@@ -5,7 +5,6 @@ import com.qust.lab.pojo.entity.OutboxMessage;
 import com.qust.lab.srevice.SampleEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.AmqpException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -52,7 +51,7 @@ public class OutboxMessageDispatcher {
             try {
                 sampleEventPublisher.publish(message);
                 outboxMessageMapper.markPublished(message.getId());
-            } catch (AmqpException | IllegalStateException e) {
+            } catch (Exception e) {
                 String error = shortenError(e.getMessage());
                 outboxMessageMapper.markFailed(
                         message.getId(),

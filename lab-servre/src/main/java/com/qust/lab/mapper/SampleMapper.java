@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.qust.lab.pojo.entity.Sample;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
@@ -41,12 +42,30 @@ public interface SampleMapper extends BaseMapper<Sample> {
             version = version + 1
         WHERE id = #{id}
           AND version = #{version}
+          AND (
+                #{isAdmin} = TRUE
+                OR creator_id = #{operatorId}
+                OR custodian_id = #{operatorId}
+              )
         """)
     int updateBasicInfoIfVersion(
             @Param("id") Long id,
             @Param("sampleName") String sampleName,
             @Param("sourceLab") String sourceLab,
             @Param("riskLevel") String riskLevel,
+            @Param("version") Integer version,
+            @Param("operatorId") Long operatorId,
+            @Param("isAdmin") Boolean isAdmin
+    );
+
+    @Delete("""
+        DELETE FROM sample
+        WHERE id = #{id}
+          AND status = 'CREATED'
+          AND version = #{version}
+        """)
+    int deleteIfCreatedAndVersion(
+            @Param("id") Long id,
             @Param("version") Integer version
     );
 }

@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: "${MYSQL_URL:jdbc:mysql://localhost:3306/labtrace?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}"
+    username: "${MYSQL_USERNAME:labtrace}"
+    password: "${MYSQL_PASSWORD:请修改数据库密码}"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: "${REDIS_HOST:localhost}"
+      port: "${REDIS_PORT:6379}"
+      database: "${REDIS_DATABASE:0}"
+      timeout: 3000ms
+  rabbitmq:
+    host: "${RABBITMQ_HOST:localhost}"
+    port: "${RABBITMQ_PORT:5672}"
+    username: "${RABBITMQ_USERNAME:labtrace}"
+    password: "${RABBITMQ_PASSWORD:请修改RabbitMQ密码}"
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+app:
+  messaging:
+    enabled: "${MESSAGING_ENABLED:false}"
+    exchange: labtrace.events
+    sample-created-routing-key: sample.created
+    sample-created-queue: sample.created.queue
+    sample-status-changed-routing-key: sample.status.changed
+    sample-status-changed-queue: sample.status.changed.queue
+    dispatch-delay-ms: 5000
+    max-error-length: 500
+  agent:
+    enabled: "${AGENT_ENABLED:false}"
+    base-url: "${AGENT_BASE_URL:https://api.openai.com/v1}"
+    api-key: "${AGENT_API_KEY:}"
+    model: "${AGENT_MODEL:gpt-4.1-mini}"
+    max-context-length: "${AGENT_MAX_CONTEXT_LENGTH:12000}"
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  secret: "${JWT_SECRET:请修改为至少32位的JWT密钥}"
+  expiration: "${JWT_EXPIRATION:86400000}"

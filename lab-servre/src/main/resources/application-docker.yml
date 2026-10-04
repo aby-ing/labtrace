@@ -1,8 +1,8 @@
 spring:
   datasource:
     url: jdbc:mysql://localhost:3307/labtrace?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: labtrace
-    password: Labtrace@123456
+    username: ${MYSQL_USERNAME:labtrace}
+    password: ${MYSQL_PASSWORD:Labtrace@123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
@@ -13,8 +13,12 @@ spring:
   rabbitmq:
     host: localhost
     port: 5673
-    username: guest
-    password: guest
+    username: ${RABBITMQ_USERNAME:labtrace}
+    password: ${RABBITMQ_PASSWORD:LabtraceMq@123456}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 app:
   messaging:
@@ -26,3 +30,13 @@ app:
     sample-status-changed-queue: sample.status.changed.queue
     dispatch-delay-ms: 5000
     max-error-length: 500
+  agent:
+    enabled: ${AGENT_ENABLED:false}
+    base-url: ${AGENT_BASE_URL:https://api.openai.com/v1}
+    api-key: ${AGENT_API_KEY:}
+    model: ${AGENT_MODEL:gpt-4.1-mini}
+    max-context-length: ${AGENT_MAX_CONTEXT_LENGTH:12000}
+
+jwt:
+  secret: ${JWT_SECRET:labtrace-local-only-jwt-secret-change-me}
+  expiration: ${JWT_EXPIRATION:86400000}

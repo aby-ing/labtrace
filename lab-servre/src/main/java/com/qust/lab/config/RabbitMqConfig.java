@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
@@ -37,7 +38,9 @@ public class RabbitMqConfig {
 
     @Bean
     public Binding sampleCreatedBinding(
+            @Qualifier("sampleCreatedQueue")
             Queue sampleCreatedQueue,
+            @Qualifier("labtraceEventExchange")
             TopicExchange labtraceEventExchange,
             @Value("${app.messaging.sample-created-routing-key}")
             String routingKey
@@ -58,7 +61,9 @@ public class RabbitMqConfig {
 
     @Bean
     public Binding sampleStatusChangedBinding(
+            @Qualifier("sampleStatusChangedQueue")
             Queue sampleStatusChangedQueue,
+            @Qualifier("labtraceEventExchange")
             TopicExchange labtraceEventExchange,
             @Value("${app.messaging.sample-status-changed-routing-key}")
             String routingKey
