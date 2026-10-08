@@ -1,6 +1,6 @@
 # LabTrace
 
-LabTrace 是一个实验室样品追踪后端项目，当前使用 Spring Boot、MyBatis-Plus、MySQL 和 JWT。
+LabTrace 是一个实验室样品追踪后端项目，当前使用 Spring Boot、MyBatis-Plus、MySQL，Redis 和 JWT。
 
 ## 1. 初始化数据库
 
